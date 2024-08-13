@@ -1060,7 +1060,7 @@ done:
 }
 
 const struct bt_mesh_model_op bt_mesh_cfg_cli_op[] = {
-	{ OP_DEV_COMP_DATA_STATUS,   BT_MESH_LEN_MIN(5),     comp_data_status },
+	{ OP_DEV_COMP_DATA_STATUS,   BT_MESH_LEN_MIN(1),      comp_data_status },
 	{ OP_BEACON_STATUS,          BT_MESH_LEN_EXACT(1),    beacon_status },
 	{ OP_DEFAULT_TTL_STATUS,     BT_MESH_LEN_EXACT(1),    ttl_status },
 	{ OP_FRIEND_STATUS,          BT_MESH_LEN_EXACT(1),    friend_status },

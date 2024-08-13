@@ -1133,23 +1133,33 @@ int bt_mesh_model_correspond(const struct bt_mesh_model *corresponding_mod,
  */
 bool bt_mesh_model_is_extended(const struct bt_mesh_model *model);
 
-/** @brief Indicate that the composition data will change on next bootup.
+/** @brief Set Composition Data Page contents.
  *
- *  Tell the config server that the composition data is expected to change on
- *  the next bootup, and the current composition data should be backed up.
+ *  Can only be used for pages >= 128. If this is called with a page number less
+ *  than 128 or a page number not present on the device, it will return an error
+ *  code.
  *
- *  @return Zero on success or (negative) error code otherwise.
+ *  @param page The page to set the contents of. Must be >= 128.
+ *  @param data Pointer to new page contents.
+ *  @param len Length of new page contents.
+ *
+ *  @retval 0 on success, (negative) error code otherwise.
  */
-int bt_mesh_comp_change_prepare(void);
+int bt_mesh_comp_data_set(uint8_t page, const void *data, uint16_t len);
 
-/** @brief Indicate that the metadata will change on next bootup.
+/** @brief Set Models Metadata Page contents.
  *
- *  Tell the config server that the models metadata is expected to change on
- *  the next bootup, and the current models metadata should be backed up.
+ *  Can only be used for page 128. If this is called with a page number less
+ *  than 128 or a page number not present on the device, it will return an error
+ *  code.
  *
- *  @return Zero on success or (negative) error code otherwise.
+ *  @param page The page to set the contents of. Must be 128.
+ *  @param data Pointer to new page contents.
+ *  @param len Length of new page contents.
+ *
+ *  @retval 0 on success, (negative) error code otherwise.
  */
-int bt_mesh_models_metadata_change_prepare(void);
+int bt_mesh_models_metadata_set(uint8_t page, const void *data, uint16_t len);
 
 /** Node Composition */
 struct bt_mesh_comp {

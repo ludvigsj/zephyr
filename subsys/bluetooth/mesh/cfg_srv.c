@@ -65,18 +65,14 @@ static int dev_comp_data_get(const struct bt_mesh_model *model,
 
 	net_buf_simple_add_u8(&sdu, page);
 
-	if (atomic_test_bit(bt_mesh.flags, BT_MESH_COMP_DIRTY) && page < 128) {
-		sdu.size -= BT_MESH_MIC_SHORT;
-		err = bt_mesh_comp_read(&sdu, page);
-		sdu.size += BT_MESH_MIC_SHORT;
-	} else {
-		err = bt_mesh_comp_data_get_page(&sdu, page, 0);
-	}
+	sdu.size -= BT_MESH_MIC_SHORT;
+	err = bt_mesh_comp_data_get_elems(&sdu, page);
 
 	if (err) {
 		LOG_ERR("Failed to get CDP%d, err:%d", page, err);
 		return err;
 	}
+	sdu.size += BT_MESH_MIC_SHORT;
 
 	if (bt_mesh_model_send(model, ctx, &sdu, NULL, NULL)) {
 		LOG_ERR("Unable to send Device Composition Status response");
