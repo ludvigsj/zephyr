@@ -92,7 +92,7 @@ int bt_mesh_dfu_metadata_comp_hash_local_get(uint8_t *key, uint32_t *hash)
 	NET_BUF_SIMPLE_DEFINE(buf, BT_MESH_TX_SDU_MAX);
 	int err;
 
-	err = bt_mesh_comp_data_get_page_0(&buf, 0);
+	err = bt_mesh_comp_data_get_page(&buf, 0, 0);
 	if (err) {
 		return err;
 	}

@@ -24,9 +24,6 @@ void bt_mesh_elem_register(const struct bt_mesh_elem *elem, uint8_t count);
 
 uint8_t bt_mesh_elem_count(void);
 size_t bt_mesh_comp_page_size(uint8_t page);
-int bt_mesh_comp_data_get_page_0(struct net_buf_simple *buf, size_t offset);
-size_t bt_mesh_metadata_page_0_size(void);
-int bt_mesh_metadata_get_page_0(struct net_buf_simple *buf, size_t offset);
 
 /* Find local element based on unicast address */
 const struct bt_mesh_elem *bt_mesh_elem_find(uint16_t addr);
@@ -63,16 +60,24 @@ int bt_mesh_access_recv(struct bt_mesh_msg_ctx *ctx, struct net_buf_simple *buf)
 int bt_mesh_model_recv(struct bt_mesh_msg_ctx *ctx, struct net_buf_simple *buf);
 
 int bt_mesh_comp_register(const struct bt_mesh_comp *comp);
-int bt_mesh_comp_store(void);
-int bt_mesh_comp_read(struct net_buf_simple *buf, uint8_t page);
 uint8_t bt_mesh_comp_parse_page(struct net_buf_simple *buf);
-
-int bt_mesh_models_metadata_store(void);
-int bt_mesh_models_metadata_read(struct net_buf_simple *buf, size_t offset);
 
 void bt_mesh_comp_data_pending_clear(void);
 void bt_mesh_comp_data_clear(void);
-int bt_mesh_comp_data_get_page(struct net_buf_simple *buf, size_t page, size_t offset);
+
+/** Fills the buffer with as many bytes from the page as can fit, starting at @c offset. */
+int bt_mesh_comp_data_get_page(struct net_buf_simple *buf, uint8_t page, size_t offset);
+
+/** Fills the buffer with as many elements from the page as can fit, starting at the beginning of
+ *  the page.
+ */
+int bt_mesh_comp_data_get_elems(struct net_buf_simple *buf, uint8_t page);
+
+/** Fills the buffer with as many bytes from the page as can fit, starting at @c offset. */
+int bt_mesh_models_metadata_get_page(struct net_buf_simple *buf, uint8_t page, size_t offset);
+
+size_t bt_mesh_models_metadata_page_size(uint8_t page);
+bool bt_mesh_comp_128_changed(void);
 
 void bt_mesh_model_pending_store(void);
 void bt_mesh_model_bind_store(const struct bt_mesh_model *mod);
