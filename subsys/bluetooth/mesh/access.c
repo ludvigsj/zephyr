@@ -111,7 +111,7 @@ enum page_type {
 	PAGE_TYPE_METADATA,
 };
 
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 
 static struct {
 	const enum page_type type;
@@ -129,7 +129,7 @@ static struct {
 	{PAGE_TYPE_METADATA, 128, "bt/mesh/metadata/128"},
 #endif
 };
-#endif /* CONFIG_BT_MESH_HIGH_DATA_PAGES */
+#endif /* defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS) */
 
 void bt_mesh_model_foreach(void (*func)(const struct bt_mesh_model *mod,
 					const struct bt_mesh_elem *elem,
@@ -413,27 +413,33 @@ static int bt_mesh_comp_data_get_page_0(struct net_buf_simple *buf, size_t offse
 	int i;
 
 	comp = bt_mesh_comp_get();
+	printk("Initial feat == 0x%04x\n", feat);
 
 	if (IS_ENABLED(CONFIG_BT_MESH_RELAY)) {
 		feat |= BT_MESH_FEAT_RELAY;
 	}
+	printk("feat | relay == 0x%04x\n", feat);
 
 	if (IS_ENABLED(CONFIG_BT_MESH_GATT_PROXY)) {
 		feat |= BT_MESH_FEAT_PROXY;
 	}
+	printk("feat | proxy == 0x%04x\n", feat);
 
 	if (IS_ENABLED(CONFIG_BT_MESH_FRIEND)) {
 		feat |= BT_MESH_FEAT_FRIEND;
 	}
+	printk("feat | friend == 0x%04x\n", feat);
 
 	if (IS_ENABLED(CONFIG_BT_MESH_LOW_POWER)) {
 		feat |= BT_MESH_FEAT_LOW_POWER;
 	}
+	printk("feat | lpn == 0x%04x\n", feat);
 
 	data_buf_add_le16_offset(buf, comp->cid, &offset);
 	data_buf_add_le16_offset(buf, comp->pid, &offset);
 	data_buf_add_le16_offset(buf, comp->vid, &offset);
 	data_buf_add_le16_offset(buf, CONFIG_BT_MESH_CRPL, &offset);
+	printk("Adding feat == 0x%04x\n", feat);
 	data_buf_add_le16_offset(buf, feat, &offset);
 
 	for (i = 0; i < comp->elem_count; i++) {
@@ -2379,7 +2385,7 @@ static int current_page_contents(struct net_buf_simple *buf, enum page_type type
 	}
 }
 
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 static bool new_page_data_is_equal(enum page_type type, uint8_t page, const void *new_data,
 				   uint16_t new_len)
 {
@@ -2440,16 +2446,20 @@ static int stored_page_write(enum page_type type, uint8_t page, const void *data
 
 	/* Check that data is actually new. */
 	if (new_page_data_is_equal(type, page, data, len)) {
+		printk("Don't write, because data is equal\n");
 		/* If page 128+n data equals page n, there is no need to store it.*/
 		data = NULL;
 	}
 
 	if (len == 0) {
+		printk("Writing sentinel\n");
 		err = settings_save_one(path, &page_empty, 1);
 	} else {
+		printk("Writing %d bytes of data\n", data ? len : 0);
 		err = settings_save_one(path, data, data ? len : 0);
 	}
 
+	printk("settings save err = %d \n", err);
 	if (err) {
 		LOG_ERR("Failed to store %sdata page %d: %d",
 			type == PAGE_TYPE_COMP ? "comp " : "meta", page, err);
@@ -2512,7 +2522,7 @@ static size_t next_elem_size_cdp129(struct net_buf_simple *buf)
 
 	return size;
 }
-#endif
+#endif /* CONFIG_BT_MESH_COMP_PAGE_1 */
 
 #ifdef CONFIG_BT_MESH_COMP_PAGE_2
 static size_t next_elem_size_cdp130(struct net_buf_simple *buf)
@@ -2540,7 +2550,7 @@ static size_t next_elem_size_cdp130(struct net_buf_simple *buf)
 	 */
 	return size + 2 + sys_get_le16(buf->data + size);
 }
-#endif
+#endif /* CONFIG_BT_MESH_COMP_PAGE_2 */
 
 static size_t next_elem_size(struct net_buf_simple *buf, uint8_t page)
 {
@@ -2593,6 +2603,7 @@ static int write_cdp_elems(struct net_buf_simple *buf, struct net_buf_simple *re
 static int stored_page_read_cb(const char *key, size_t len, settings_read_cb read_cb, void *cb_arg,
 			       void *param)
 {
+	printk("Read CB, len == %d\n", len);
 	struct net_buf_simple *buf = param;
 
 	if (len > net_buf_simple_tailroom(buf)) {
@@ -2627,6 +2638,7 @@ static int stored_page_read(struct net_buf_simple *buf, enum page_type type, uin
 	path = stored_page_path(type, page);
 
 	if (path == NULL) {
+		printk("Returning ENOENT because no path\n");
 		return -ENOENT;
 	}
 
@@ -2635,10 +2647,12 @@ static int stored_page_read(struct net_buf_simple *buf, enum page_type type, uin
 	if (err) {
 		LOG_ERR("Failed reading %sdata page %d: %d",
 			type == PAGE_TYPE_COMP ? "comp " : "meta", page, err);
+		printk("Returning err from settings load\n");
 		return err;
 	}
 
 	if (read_buf.len == 0) {
+		printk("Returning ENOENT because empty buf\n");
 		return -ENOENT;
 	}
 
@@ -2696,11 +2710,12 @@ static size_t stored_page_size_get(enum page_type type, uint8_t page)
 
 	return size;
 }
-#endif /* CONFIG_BT_MESH_HIGH_DATA_PAGES */
+#endif /* defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS) */
 
 static size_t page_size_get(enum page_type type, uint8_t page)
 {
 #ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#ifdef CONFIG_BT_SETTINGS
 	size_t size;
 
 	if (page >= 128) {
@@ -2713,17 +2728,22 @@ static size_t page_size_get(enum page_type type, uint8_t page)
 		}
 	}
 #endif
-	return current_page_size(type, page % 128);
+	page %= 128;
+#endif
+	return current_page_size(type, page);
 }
 
 static int get_page_contents(struct net_buf_simple *buf, enum page_type type, uint8_t page,
 			     size_t offset, bool allow_partial_elems)
 {
+	printk("Getting data for page %d\n", page);
 #ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#ifdef CONFIG_BT_SETTINGS
 	int err;
 
 	if (page >= 128) {
 		err = stored_page_read(buf, type, page, offset, allow_partial_elems);
+		printk("Stored page read returned %d (ENOENT == %d)\n", err, ENOENT);
 		if (err != -ENOENT) {
 			/* If err == 0, the buffer was successfully filled from settings, so return
 			 * the success here. If an error than ENOENT occurred, something unexpected
@@ -2735,7 +2755,9 @@ static int get_page_contents(struct net_buf_simple *buf, enum page_type type, ui
 		}
 	}
 #endif
-	return current_page_contents(buf, type, page % 128, offset, allow_partial_elems);
+	page %= 128;
+#endif
+	return current_page_contents(buf, type, page, offset, allow_partial_elems);
 }
 
 size_t bt_mesh_comp_page_size(uint8_t page)
@@ -2750,11 +2772,58 @@ size_t bt_mesh_models_metadata_page_size(uint8_t page)
 
 bool bt_mesh_comp_128_changed(void)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	return stored_page_size_get(PAGE_TYPE_COMP, 128) != 0;
 #else
 	return false;
 #endif
+}
+
+uint8_t bt_mesh_comp_128_elem_count(void)
+{
+#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#ifdef CONFIG_BT_SETTINGS
+	NET_BUF_SIMPLE_DEFINE(buf, CONFIG_BT_MESH_COMP_PST_BUF_SIZE);
+
+	int err;
+	uint8_t elem_count = 0;
+	const char *path;
+	size_t size;
+
+	path = stored_page_path(PAGE_TYPE_COMP, 128);
+	err = settings_load_subtree_direct(path, stored_page_read_cb, &buf);
+	if (err) {
+		LOG_ERR("Error loading CDP128 data: %d", err);
+		return 0;
+	}
+
+	if (buf.len == 0) {
+		/* No page data stored, element count will not change in the new term. */
+		return bt_mesh_elem_count();
+	}
+
+	while ((size = next_elem_size_cdp128(&buf))) {
+		if (buf.len < size) {
+			LOG_ERR("Error parsing CDP128 data: not enough data");
+			return 0;
+		}
+		net_buf_simple_pull_mem(&buf, size);
+		elem_count++;
+	}
+
+	if (buf.len != 0) {
+		/* Garbage at the end of stored page data. */
+		LOG_ERR("Error parsing CDP128 data: garbage at the end of data");
+		return 0;
+	}
+
+	return elem_count;
+#else
+	return bt_mesh_elem_count();
+#endif /* CONFIG_BT_SETTINGS */
+#else
+	return 0;
+#endif /* CONFIG_BT_MESH_HIGH_DATA_PAGES */
 }
 
 int bt_mesh_comp_data_get_elems(struct net_buf_simple *buf, uint8_t page)
@@ -2782,7 +2851,7 @@ int bt_mesh_models_metadata_get_page(struct net_buf_simple *buf, uint8_t page, s
 
 int bt_mesh_comp_data_set(uint8_t page, const void *data, uint16_t len)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	return stored_page_write(PAGE_TYPE_COMP, page, data, len);
 #else
 	return -ENOTSUP;
@@ -2791,7 +2860,7 @@ int bt_mesh_comp_data_set(uint8_t page, const void *data, uint16_t len)
 
 int bt_mesh_models_metadata_set(uint8_t page, const void *data, uint16_t len)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	return stored_page_write(PAGE_TYPE_METADATA, page, data, len);
 #else
 	return -ENOTSUP;
@@ -2826,7 +2895,7 @@ int bt_mesh_model_data_store(const struct bt_mesh_model *mod, bool vnd, const ch
 
 void bt_mesh_comp_data_pending_clear(void)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	int err;
 
 	for (int i = 0; i < ARRAY_SIZE(stored_pages); i++) {

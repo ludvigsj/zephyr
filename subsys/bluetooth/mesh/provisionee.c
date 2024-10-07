@@ -83,7 +83,13 @@ static void prov_invite(const uint8_t *data)
 	bt_mesh_prov_buf_init(&buf, PROV_CAPABILITIES);
 
 	/* Number of Elements supported */
-	net_buf_simple_add_u8(&buf, bt_mesh_elem_count());
+	if (IS_ENABLED(CONFIG_BT_MESH_RPR_SRV) &&
+	    atomic_test_bit(bt_mesh_prov_link.flags, REPROVISION) &&
+	    bt_mesh_node_refresh_get() == BT_MESH_RPR_NODE_REFRESH_ADDR) {
+		net_buf_simple_add_u8(&buf, bt_mesh_comp_128_elem_count());
+	} else {
+		net_buf_simple_add_u8(&buf, bt_mesh_elem_count());
+	}
 
 	uint16_t algorithm_bm = 0;
 	uint8_t oob_type = bt_mesh_prov->static_val ?
@@ -611,18 +617,34 @@ session_key_destructor:
 
 static void reprovision_complete(void)
 {
+	enum bt_mesh_rpr_node_refresh refresh = bt_mesh_node_refresh_get();
+
 	bt_mesh_reprovision(bt_mesh_prov_link.addr);
 
 	/* When performing the refresh composition procedure,
 	 * the device key will be activated after the first
 	 * successful decryption with the new key.
 	 */
-	if (bt_mesh_node_refresh_get() == BT_MESH_RPR_NODE_REFRESH_ADDR) {
+	if (refresh == BT_MESH_RPR_NODE_REFRESH_ADDR) {
 		bt_mesh_dev_key_cand_activate();
 	}
 
 	if (bt_mesh_prov->reprovisioned) {
 		bt_mesh_prov->reprovisioned(bt_mesh_primary_addr());
+	}
+
+	if ((refresh == BT_MESH_RPR_NODE_REFRESH_COMPOSITION ||
+	    refresh == BT_MESH_RPR_NODE_REFRESH_ADDR) &&
+	    bt_mesh_comp_128_changed()) {
+		bt_mesh_comp_data_pending_clear();
+		bt_mesh_prov->comp_swap();
+
+		/* If we reach this point, `comp_swap` returned without triggering a reboot. Stop
+		 * the Mesh at this point and wait for the node to reboot into the new term.
+		 */
+		/* Set flag to prevent resuming mesh before next boot. */
+		atomic_set_bit(bt_mesh.flags, BT_MESH_TERM_ENDED);
+		bt_mesh_suspend();
 	}
 }
 

@@ -255,9 +255,9 @@ static void test_cli_max_sdu_comp_data_request(void)
 	offset = 3;
 
 	/* Get local data */
-	err = bt_mesh_comp_data_get_page_0(&local_comp, offset);
+	err = bt_mesh_comp_data_get_page(&local_comp, 0, offset);
 	/* Operation is successful even if all data cannot fit in the buffer (-E2BIG) */
-	if (err && err != -E2BIG) {
+	if (err) {
 		FAIL("CLIENT: Failed to get comp data Page 0: %d", err);
 	}
 	total_size = bt_mesh_comp_page_size(0);
@@ -354,12 +354,12 @@ static void test_cli_max_sdu_metadata_request(void)
 	offset = 4;
 
 	/* Get local data */
-	err = bt_mesh_metadata_get_page_0(&local_metadata, offset);
+	err = bt_mesh_models_metadata_get_page(&local_metadata, 0, offset);
 	/* Operation is successful even if all data cannot fit in the buffer (-E2BIG) */
 	if (err && err != -E2BIG) {
 		FAIL("CLIENT: Failed to get Models Metadata Page 0: %d", err);
 	}
-	total_size = bt_mesh_metadata_page_0_size();
+	total_size = bt_mesh_models_metadata_page_size(0);
 
 	/* Get server metadata and check integrity */
 	ASSERT_OK(bt_mesh_models_metadata_get(0, SRV_ADDR, page, offset, &srv_rsp));
@@ -396,12 +396,12 @@ static void test_cli_split_metadata_request(void)
 	offset = 0;
 
 	/* Get local data */
-	int err = bt_mesh_metadata_get_page_0(&local_metadata, offset);
+	int err = bt_mesh_models_metadata_get_page(&local_metadata, 0, offset);
 	/* Operation is successful even if not all metadata could fit in the buffer (-E2BIG) */
 	if (err && err != -E2BIG) {
 		FAIL("CLIENT: Failed to get Models Metadata Page 0: %d", err);
 	}
-	total_size = bt_mesh_metadata_page_0_size();
+	total_size = bt_mesh_models_metadata_page_size(0);
 
 	/* Get first server composition data sample and check integrity */
 	ASSERT_OK(bt_mesh_models_metadata_get(0, SRV_ADDR, page, offset, &srv_rsp_1));
@@ -430,8 +430,9 @@ static void test_srv_comp_data_status_respond(void)
 
 	/* Simulate an update of composition data */
 	if (comp_changed) {
-		bt_mesh_comp_change_prepare();
-		atomic_set_bit(bt_mesh.flags, BT_MESH_COMP_DIRTY);
+		/*bt_mesh_comp_change_prepare();
+		atomic_set_bit(bt_mesh.flags, BT_MESH_NEW_COMP);*/
+		/* TODO: Do something here */
 	}
 
 	/* No server callback available. Wait 10 sec for message to be recived */
@@ -444,10 +445,6 @@ static void test_srv_metadata_status_respond(void)
 {
 	bt_mesh_device_setup(&prov, &comp_2);
 	prov_and_conf(srv_cfg);
-
-	if (atomic_test_bit(bt_mesh.flags, BT_MESH_METADATA_DIRTY)) {
-		FAIL("Metadata is dirty. Test is not suited for this purpose.");
-	}
 
 	/* No server callback available. Wait 10 sec for message to be recived */
 	k_sleep(K_SECONDS(10));

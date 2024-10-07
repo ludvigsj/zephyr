@@ -1356,6 +1356,11 @@ static const struct bt_mesh_comp2_record comp_rec = {
 static const struct bt_mesh_comp2 comp_p2 = {.record_cnt = 1, .record = &comp_rec};
 #endif
 
+static void reprovisioned(uint16_t addr)
+{
+	/* TODO: Reboot into new comp. */
+}
+
 static struct bt_mesh_prov prov = {
 	.uuid = dev_uuid,
 	.static_val = static_auth,
@@ -1368,6 +1373,7 @@ static struct bt_mesh_prov prov = {
 	.complete = prov_complete,
 	.node_added = prov_node_added,
 	.reset = prov_reset,
+	.reprovisioned = reprovisioned,
 	.uri = "Tester",
 };
 

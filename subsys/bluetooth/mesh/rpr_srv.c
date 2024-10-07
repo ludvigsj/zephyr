@@ -173,7 +173,7 @@ static void link_status_send(struct bt_mesh_msg_ctx *ctx,
 	bt_mesh_model_send(srv.mod, ctx, &buf, NULL, NULL);
 }
 
-static void link_report_send(void)
+static void link_report_send(const struct bt_mesh_send_cb *cb)
 {
 	struct bt_mesh_msg_ctx ctx = LINK_CTX(&srv.link.cli, true);
 
@@ -188,7 +188,7 @@ static void link_report_send(void)
 
 	LOG_DBG("%u %u", srv.link.status, srv.link.state);
 
-	bt_mesh_model_send(srv.mod, &ctx, &buf, NULL, NULL);
+	bt_mesh_model_send(srv.mod, &ctx, &buf, cb, NULL);
 }
 
 static void scan_report_schedule(void)
@@ -349,6 +349,17 @@ static void scan_timeout(struct k_work *work)
 	}
 }
 
+static void refresh_link_close_report_send_end(int err, void *cb_data)
+{
+	srv.refresh.cb->link_closed(&pb_remote_srv, srv.refresh.cb_data,
+					    srv.link.close_reason);
+	cli_link_clear();
+}
+
+struct bt_mesh_send_cb refresh_link_close_report_send_cb = {
+	.end = refresh_link_close_report_send_end,
+};
+
 static void link_close(enum bt_mesh_rpr_status status,
 		       enum prov_bearer_link_status reason)
 {
@@ -361,11 +372,7 @@ static void link_close(enum bt_mesh_rpr_status status,
 	if (atomic_test_and_clear_bit(srv.flags, NODE_REFRESH)) {
 		/* Link closing is an atomic operation: */
 		srv.link.state = BT_MESH_RPR_LINK_IDLE;
-		link_report_send();
-		srv.refresh.cb->link_closed(&pb_remote_srv, srv.refresh.cb_data,
-					    srv.link.close_reason);
-
-		cli_link_clear();
+		link_report_send(&refresh_link_close_report_send_cb);
 	} else {
 		bt_mesh_pb_adv.link_close(reason);
 	}
@@ -445,12 +452,12 @@ static void pb_link_opened(const struct prov_bearer *bearer, void *cb_data)
 
 	srv.link.state = BT_MESH_RPR_LINK_ACTIVE;
 	srv.link.status = BT_MESH_RPR_SUCCESS;
-	link_report_send();
+	link_report_send(NULL);
 }
 
 static void link_report_send_and_clear(struct k_work *work)
 {
-	link_report_send();
+	link_report_send(NULL);
 	cli_link_clear();
 }
 
@@ -499,7 +506,7 @@ static void pb_error(const struct prov_bearer *bearer, void *cb_data,
 	srv.link.close_reason = err;
 	srv.link.state = BT_MESH_RPR_LINK_IDLE;
 	srv.link.status = BT_MESH_RPR_ERR_LINK_CLOSED_AS_CANNOT_RECEIVE_PDU;
-	link_report_send();
+	link_report_send(NULL);
 	cli_link_clear();
 }
 
@@ -874,9 +881,19 @@ static int handle_link_open(const struct bt_mesh_model *mod, struct bt_mesh_msg_
 			return -EINVAL;
 		}
 
-		if (refresh == BT_MESH_RPR_NODE_REFRESH_COMPOSITION &&
-		    !bt_mesh_comp_128_changed()) {
+		bool comp_changed = bt_mesh_comp_128_changed();
+
+		if (refresh == BT_MESH_RPR_NODE_REFRESH_COMPOSITION && !comp_changed) {
 			LOG_WRN("Composition data page 128 is equal to page 0");
+			status = BT_MESH_RPR_ERR_LINK_CANNOT_OPEN;
+			goto rsp;
+		}
+
+		if ((refresh == BT_MESH_RPR_NODE_REFRESH_COMPOSITION ||
+		     refresh == BT_MESH_RPR_NODE_REFRESH_ADDR) && comp_changed &&
+		    !bt_mesh_prov_get()->comp_swap)
+		{
+			LOG_WRN("Composition swap needed but cb not implemented");
 			status = BT_MESH_RPR_ERR_LINK_CANNOT_OPEN;
 			goto rsp;
 		}
@@ -892,7 +909,7 @@ static int handle_link_open(const struct bt_mesh_model *mod, struct bt_mesh_msg_
 		srv.link.status = BT_MESH_RPR_SUCCESS;
 		srv.refresh.cb->link_opened(&pb_remote_srv, &srv);
 		status = BT_MESH_RPR_SUCCESS;
-		link_report_send();
+		link_report_send(NULL);
 		goto rsp;
 	}
 

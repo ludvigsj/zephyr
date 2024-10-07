@@ -78,6 +78,7 @@ int bt_mesh_models_metadata_get_page(struct net_buf_simple *buf, uint8_t page, s
 
 size_t bt_mesh_models_metadata_page_size(uint8_t page);
 bool bt_mesh_comp_128_changed(void);
+uint8_t bt_mesh_comp_128_elem_count(void);
 
 void bt_mesh_model_pending_store(void);
 void bt_mesh_model_bind_store(const struct bt_mesh_model *mod);

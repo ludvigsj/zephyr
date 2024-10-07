@@ -1112,6 +1112,7 @@ static int dev_key_cand_set(const char *name, size_t len_rd, settings_read_cb re
 {	int err;
 
 	if (len_rd < 16) {
+		printk("Tried to read dev key cand, was wrong length (len_rd == %d)\n", len_rd);
 		return -EINVAL;
 	}
 

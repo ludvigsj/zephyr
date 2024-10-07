@@ -283,6 +283,28 @@ struct bt_mesh_prov {
 	 */
 	void        (*reprovisioned)(uint16_t addr);
 
+	/** @brief Swap of node composition is required
+	 *
+	 *  When this callback is called, the data in Composition Data Page 128
+	 *  is different from the data in Composition Data Page 0 and the device
+	 *  is in the process of being reprovisioned requiring the data in
+	 *  Composition Data Pages 128-130 to be moved to Composition Data Pages
+	 *  0-2, as well as the data in Models Metadata Page 128 to be moved to
+	 *  Models Metadata Page 0.
+	 *
+	 *  The application is required to perform any actions required to swap
+	 *  the device composition data upon the next boot. When this callback
+	 *  returns, the data stored for Composition Data Pages 128, 129 and
+	 *  130, as well as the data in Models Metadata Page 128, will be reset,
+	 *  and the node will reboot.
+	 *
+	 *  This callback is mandatory for the node to support Node Composition
+	 *  Refresh Procedure, and to support the Node Address Refresh Procedure
+	 *  in cases where Composition Data Page 128 differs from Composition
+	 *  Data Page 0.
+	 */
+	void        (*comp_swap)(void);
+
 	/** @brief A new node has been added to the provisioning database.
 	 *
 	 *  This callback notifies the application that provisioning has
