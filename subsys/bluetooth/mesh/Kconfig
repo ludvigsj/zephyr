@@ -806,12 +806,12 @@ config BT_MESH_COMP_PAGE_2
 
 config BT_MESH_HIGH_DATA_PAGES
 	bool "Support for Composition Data Pages 128-130 and Models Metadata Page 128"
-	depends on BT_SETTINGS
 	help
 	  Enable support for Composition Data Page 128.
 	  If `BT_MESH_COMP_PAGE_1` is enabled, also enables support for Composition Data Page 129.
 	  If `BT_MESH_COMP_PAGE_2` is enabled, also enables support for Composition Data Page 130.
-	  If `BT_MESH_LARGE_COMP_DATA_SRV` is enabled, enables support for Models Metadata Page 128
+	  If `BT_MESH_LARGE_COMP_DATA_SRV` is enabled, enables support for Models Metadata Page 128.
+	  To be able to change the contents of these pages, enabling BT_SETTINGS is also required.
 
 config BT_MESH_COMP_PST_BUF_SIZE
 	int "Composition Data Page persistence buffer size"

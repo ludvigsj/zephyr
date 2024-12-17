@@ -111,7 +111,7 @@ enum page_type {
 	PAGE_TYPE_METADATA,
 };
 
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 
 static struct {
 	const enum page_type type;
@@ -129,7 +129,7 @@ static struct {
 	{PAGE_TYPE_METADATA, 128, "bt/mesh/metadata/128"},
 #endif
 };
-#endif /* CONFIG_BT_MESH_HIGH_DATA_PAGES */
+#endif /* defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS) */
 
 void bt_mesh_model_foreach(void (*func)(const struct bt_mesh_model *mod,
 					const struct bt_mesh_elem *elem,
@@ -2379,7 +2379,7 @@ static int current_page_contents(struct net_buf_simple *buf, enum page_type type
 	}
 }
 
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 static bool new_page_data_is_equal(enum page_type type, uint8_t page, const void *new_data,
 				   uint16_t new_len)
 {
@@ -2512,7 +2512,7 @@ static size_t next_elem_size_cdp129(struct net_buf_simple *buf)
 
 	return size;
 }
-#endif
+#endif /* CONFIG_BT_MESH_COMP_PAGE_1 */
 
 #ifdef CONFIG_BT_MESH_COMP_PAGE_2
 static size_t next_elem_size_cdp130(struct net_buf_simple *buf)
@@ -2540,7 +2540,7 @@ static size_t next_elem_size_cdp130(struct net_buf_simple *buf)
 	 */
 	return size + 2 + sys_get_le16(buf->data + size);
 }
-#endif
+#endif /* CONFIG_BT_MESH_COMP_PAGE_2 */
 
 static size_t next_elem_size(struct net_buf_simple *buf, uint8_t page)
 {
@@ -2696,11 +2696,12 @@ static size_t stored_page_size_get(enum page_type type, uint8_t page)
 
 	return size;
 }
-#endif /* CONFIG_BT_MESH_HIGH_DATA_PAGES */
+#endif /* defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS) */
 
 static size_t page_size_get(enum page_type type, uint8_t page)
 {
 #ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#ifdef CONFIG_BT_SETTINGS
 	size_t size;
 
 	if (page >= 128) {
@@ -2713,13 +2714,16 @@ static size_t page_size_get(enum page_type type, uint8_t page)
 		}
 	}
 #endif
-	return current_page_size(type, page % 128);
+	page %= 128;
+#endif
+	return current_page_size(type, page);
 }
 
 static int get_page_contents(struct net_buf_simple *buf, enum page_type type, uint8_t page,
 			     size_t offset, bool allow_partial_elems)
 {
 #ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#ifdef CONFIG_BT_SETTINGS
 	int err;
 
 	if (page >= 128) {
@@ -2735,7 +2739,9 @@ static int get_page_contents(struct net_buf_simple *buf, enum page_type type, ui
 		}
 	}
 #endif
-	return current_page_contents(buf, type, page % 128, offset, allow_partial_elems);
+	page %= 128;
+#endif
+	return current_page_contents(buf, type, page, offset, allow_partial_elems);
 }
 
 size_t bt_mesh_comp_page_size(uint8_t page)
@@ -2750,7 +2756,7 @@ size_t bt_mesh_models_metadata_page_size(uint8_t page)
 
 bool bt_mesh_comp_128_changed(void)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	return stored_page_size_get(PAGE_TYPE_COMP, 128) != 0;
 #else
 	return false;
@@ -2782,18 +2788,20 @@ int bt_mesh_models_metadata_get_page(struct net_buf_simple *buf, uint8_t page, s
 
 int bt_mesh_comp_data_set(uint8_t page, const void *data, uint16_t len)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	return stored_page_write(PAGE_TYPE_COMP, page, data, len);
 #else
+	LOG_WRN("Cannot change CDP%d data when BT_SETTINGS is disabled.", page);
 	return -ENOTSUP;
 #endif
 }
 
 int bt_mesh_models_metadata_set(uint8_t page, const void *data, uint16_t len)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	return stored_page_write(PAGE_TYPE_METADATA, page, data, len);
 #else
+	LOG_WRN("Cannot change Models Metadata Page %d data when BT_SETTINGS is disabled.", page);
 	return -ENOTSUP;
 #endif
 }
@@ -2826,7 +2834,7 @@ int bt_mesh_model_data_store(const struct bt_mesh_model *mod, bool vnd, const ch
 
 void bt_mesh_comp_data_pending_clear(void)
 {
-#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#if defined(CONFIG_BT_MESH_HIGH_DATA_PAGES) && defined(CONFIG_BT_SETTINGS)
 	int err;
 
 	for (int i = 0; i < ARRAY_SIZE(stored_pages); i++) {
