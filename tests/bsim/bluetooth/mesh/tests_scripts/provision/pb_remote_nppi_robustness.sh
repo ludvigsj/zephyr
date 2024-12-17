@@ -10,9 +10,10 @@ source $(dirname "${BASH_SOURCE[0]}")/../../_mesh_test.sh
 # 2. RPR client starts to scan for the third device (prov_device_pb_remote_server_nppi_robustness)
 #    through RPR (5 second timeout) and provisions it
 # 3. Execute device key refresh procedure 3 times for the third device.
-# 4. Execute composition refresh procedure 3 times for the third device.
-# 5. Execute address refresh procedure 3 times for the third device.
-# (Step 3-5 is executed without sending a node reset message)
+# 4. Execute address refresh procedure 3 times for the third device.
+# (Step 3-4 is executed without sending a node reset message)
+#
+# Composition refresh is not tested in this test case because it requires BT_SETTINGS
 RunTest mesh_prov_pb_remote_nppi_robustness \
 	prov_provisioner_pb_remote_client_nppi_robustness \
 	prov_device_pb_remote_server_unproved \

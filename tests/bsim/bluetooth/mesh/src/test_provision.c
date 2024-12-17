@@ -93,6 +93,7 @@ static const uint8_t dev_key[16] = { 0x01, 0x02, 0x03, 0x04, 0x05 };
 static uint8_t dev_uuid[16] = { 0x6c, 0x69, 0x6e, 0x67, 0x61, 0x6f };
 static uint8_t *uuid_to_provision;
 static struct k_sem reprov_sem;
+static struct k_sem comp_swap_sem;
 static uint32_t link_close_timestamp;
 
 #if IS_RPR_PRESENT
@@ -209,9 +210,12 @@ static const struct bt_mesh_comp2_record comp_rec[2] = {
 };
 
 static const struct bt_mesh_comp2 comp_p2_1 = {.record_cnt = 1, .record = comp_rec};
-static const struct bt_mesh_comp2 comp_p2_2 = {.record_cnt = 2, .record = comp_rec};
+static const struct bt_mesh_comp2 comp_p2_2 = {.record_cnt = 0, .record = comp_rec};
 
-static const struct bt_mesh_comp rpr_srv_comp_2_elem = {
+static const struct bt_mesh_comp rpr_srv_new_comp = {
+	.cid = BT_COMP_ID_LF,
+	.pid = 1,
+	.vid = 2,
 	.elem =
 		(const struct bt_mesh_elem[]){
 			BT_MESH_ELEM(1,
@@ -303,6 +307,11 @@ static void prov_reprovisioned(uint16_t addr)
 	k_sem_give(&reprov_sem);
 }
 
+static void prov_comp_swap(void)
+{
+	k_sem_give(&comp_swap_sem);
+}
+
 static void prov_reset(void)
 {
 	ASSERT_OK(bt_mesh_prov_enable(BT_MESH_PROV_ADV));
@@ -366,6 +375,7 @@ static struct bt_mesh_prov prov = {
 	.complete = prov_complete,
 	.link_open = prov_link_open,
 	.link_close = prov_link_close,
+	.comp_swap = prov_comp_swap,
 	.reprovisioned = prov_reprovisioned,
 	.node_added = prov_node_added,
 	.output_number = output_number,
@@ -877,6 +887,7 @@ static void provisioner_pb_remote_client_setup(void)
 {
 	k_sem_init(&prov_sem, 0, 1);
 	k_sem_init(&reprov_sem, 0, 1);
+	k_sem_init(&comp_swap_sem, 0, 1);
 
 	bt_mesh_device_setup(&prov, &rpr_cli_comp);
 
@@ -888,6 +899,7 @@ static void device_pb_remote_server_setup(const struct bt_mesh_comp *comp, bool 
 {
 	k_sem_init(&prov_sem, 0, 1);
 	k_sem_init(&reprov_sem, 0, 1);
+	k_sem_init(&comp_swap_sem, 0, 1);
 
 	bt_mesh_device_setup(&prov, comp);
 
@@ -1097,41 +1109,6 @@ static void reprovision_remote_devkey_client(struct bt_mesh_rpr_node *srv,
 	k_sleep(K_SECONDS(2));
 }
 
-static void reprovision_remote_comp_data_client(struct bt_mesh_rpr_node *srv,
-						struct bt_mesh_cdb_node *node,
-						struct net_buf_simple *dev_comp)
-{
-	NET_BUF_SIMPLE_DEFINE(new_dev_comp, BT_MESH_RX_SDU_MAX);
-	uint8_t prev_node_dev_key[16];
-	uint8_t page;
-
-	ASSERT_OK_MSG(bt_mesh_cdb_node_key_export(node, prev_node_dev_key),
-		      "Can't export device key from cdb");
-
-	bt_mesh_reprovision_remote(&rpr_cli, srv, current_dev_addr, true);
-
-	ASSERT_OK(k_sem_take(&reprov_sem, K_SECONDS(20)));
-
-	/* Check that CDB has updated Device Key for the node. */
-	ASSERT_TRUE(bt_mesh_key_compare(prev_node_dev_key, &node->dev_key));
-	ASSERT_OK_MSG(bt_mesh_cdb_node_key_export(node, prev_node_dev_key),
-			"Can't export device key from cdb");
-
-	/* Check that Composition Data Page 128 is now Page 0. */
-	net_buf_simple_reset(&new_dev_comp);
-	ASSERT_OK(bt_mesh_cfg_cli_comp_data_get(0, current_dev_addr, 0, &page,
-						&new_dev_comp));
-
-	ASSERT_EQUAL(0, page);
-	ASSERT_EQUAL(dev_comp->len, new_dev_comp.len);
-	if (memcmp(dev_comp->data, new_dev_comp.data, dev_comp->len)) {
-		FAIL("Wrong composition data page 0");
-	}
-
-	/* Let RPR Server verify Device Key. */
-	k_sleep(K_SECONDS(2));
-}
-
 static void reprovision_remote_address_client(struct bt_mesh_rpr_node *srv,
 					      struct bt_mesh_cdb_node *node)
 {
@@ -1225,12 +1202,6 @@ static void test_provisioner_pb_remote_client_nppi_robustness(void)
 		reprovision_remote_devkey_client(&srv, node);
 	}
 
-	LOG_INF("Testing Composition Data refresh...");
-	for (int i = 0; i < PROV_REPROV_COUNT; i++) {
-		LOG_INF("Changing Composition Data #%d...\n", i);
-		reprovision_remote_comp_data_client(&srv, node, &dev_comp);
-	}
-
 	LOG_INF("Testing address refresh...");
 	for (int i = 0; i < PROV_REPROV_COUNT; i++) {
 		LOG_INF("Changing address #%d...\n", i);
@@ -1292,37 +1263,6 @@ static void reprovision_remote_devkey_server(const uint16_t initial_addr)
 	ASSERT_TRUE(memcmp(&prev_dev_key, dev_key, sizeof(dev_key)));
 }
 
-static void reprovision_remote_comp_data_server(const uint16_t initial_addr)
-{
-	u_int8_t prev_dev_key[16];
-	u_int8_t dev_key[16];
-
-	/* The RPR Server won't let to run Node Composition Refresh procedure without first
-	 * setting the BT_MESH_COMP_DIRTY flag. The flag is set on a boot if there is a
-	 * "bt/mesh/cmp" entry in settings. The entry is added by the
-	 * `bt_mesh_comp_change_prepare() call. The test suite is not compiled
-	 * with CONFIG_BT_SETTINGS, so the flag will never be set. Since the purpose of the
-	 * test is to check RPR Server behavior, but not the actual swap of the Composition
-	 * Data, the flag is toggled directly from the test.
-	 */
-	atomic_set_bit(bt_mesh.flags, BT_MESH_COMP_DIRTY);
-	ASSERT_OK(bt_mesh_key_export(prev_dev_key, &bt_mesh.dev_key));
-
-	ASSERT_OK(k_sem_take(&reprov_sem, K_SECONDS(30)));
-
-	/* Drop the flag manually as CONFIG_BT_SETTINGS is not enabled. */
-	atomic_clear_bit(bt_mesh.flags, BT_MESH_COMP_DIRTY);
-
-	ASSERT_EQUAL(initial_addr, bt_mesh_primary_addr());
-
-	/* Let Configuration Client activate the new Device Key and verify that it has
-	 * been changed.
-	 */
-	k_sleep(K_SECONDS(2));
-	ASSERT_OK(bt_mesh_key_export(dev_key, &bt_mesh.dev_key));
-	ASSERT_TRUE(memcmp(prev_dev_key, dev_key, sizeof(dev_key)));
-}
-
 static void reprovision_remote_address_server(const uint16_t initial_addr)
 {
 	uint8_t prev_dev_key[16];
@@ -1348,6 +1288,7 @@ static void test_device_pb_remote_server_nppi_robustness(void)
 {
 	k_sem_init(&prov_sem, 0, 1);
 	k_sem_init(&reprov_sem, 0, 1);
+	k_sem_init(&comp_swap_sem, 0, 1);
 
 	bt_mesh_device_setup(&prov, &rpr_srv_comp);
 
@@ -1367,12 +1308,6 @@ static void test_device_pb_remote_server_nppi_robustness(void)
 		reprovision_remote_devkey_server(initial_addr);
 	}
 
-	/* Test Node Composition Refresh procedure robustness. */
-	for (int i = 0; i < PROV_REPROV_COUNT; i++) {
-		LOG_INF("Composition data refresh loop #%d, waiting for being reprov ...\n", i);
-		reprovision_remote_comp_data_server(initial_addr);
-	}
-
 	/* Node Address Refresh robustness. */
 	for (int i = 0; i < PROV_REPROV_COUNT; i++) {
 		LOG_INF("Address refresh loop #%d, waiting for being reprov ...\n", i);
@@ -1382,12 +1317,50 @@ static void test_device_pb_remote_server_nppi_robustness(void)
 	PASS();
 }
 
+static void comp_data_get(uint16_t server_addr, uint8_t page, struct net_buf_simple *comp)
+{
+	uint8_t page_rsp;
+
+	/* Let complete advertising of the transaction to prevent collisions. */
+	k_sleep(K_SECONDS(3));
+
+	net_buf_simple_reset(comp);
+	ASSERT_OK(bt_mesh_cfg_cli_comp_data_get(0, server_addr, page, &page_rsp, comp));
+	ASSERT_EQUAL(page, page_rsp);
+}
+
+static void comp_data_compare(struct net_buf_simple *comp1, struct net_buf_simple *comp2,
+			      bool expect_equal)
+{
+	if (expect_equal) {
+		ASSERT_EQUAL(comp1->len, comp2->len);
+		if (memcmp(comp1->data, comp2->data, comp1->len)) {
+			LOG_HEXDUMP_ERR(comp1->data, comp1->len, "Comp1");
+			LOG_HEXDUMP_ERR(comp2->data, comp2->len, "Comp2");
+			FAIL("Composition data is not equal");
+		}
+	} else {
+		if (comp1->len == comp2->len) {
+			if (!memcmp(comp1->data, comp2->data, comp1->len)) {
+				FAIL("Composition data is equal");
+			}
+		}
+	}
+}
+
 /** @brief Test Node Composition Refresh procedure on Remote Provisioning client:
  * - provision a device over PB-Adv,
  * - provision a remote device over PB-Remote.
  */
 static void test_provisioner_pb_remote_client_ncrp_provision(void)
 {
+	NET_BUF_SIMPLE_DEFINE(dev_comp_p0, BT_MESH_RX_SDU_MAX);
+	NET_BUF_SIMPLE_DEFINE(dev_comp_p1, BT_MESH_RX_SDU_MAX);
+	NET_BUF_SIMPLE_DEFINE(dev_comp_p2, BT_MESH_RX_SDU_MAX);
+	NET_BUF_SIMPLE_DEFINE(dev_comp_p128, BT_MESH_RX_SDU_MAX);
+	NET_BUF_SIMPLE_DEFINE(dev_comp_p129, BT_MESH_RX_SDU_MAX);
+	NET_BUF_SIMPLE_DEFINE(dev_comp_p130, BT_MESH_RX_SDU_MAX);
+
 	uint16_t pb_remote_server_addr;
 	uint8_t status;
 
@@ -1406,9 +1379,37 @@ static void test_provisioner_pb_remote_client_ncrp_provision(void)
 	ASSERT_OK(provision_remote(&srv, 2, &srv.addr));
 
 	/* Check device key by adding appkey. */
-	ASSERT_OK(bt_mesh_cfg_cli_app_key_add(0, pb_remote_server_addr, 0, 0, test_app_key,
+	ASSERT_OK(bt_mesh_cfg_cli_app_key_add(0, srv.addr, 0, 0, test_app_key,
 					      &status));
 	ASSERT_OK(status);
+
+	/* Wait for target to set CDP128+ data. */
+	k_sleep(K_SECONDS(5));
+
+	/* Store Composition Data Page 0, 1, 2, 128, 129 and 130. */
+	comp_data_get(srv.addr, 0, &dev_comp_p0);
+	comp_data_get(srv.addr, 128, &dev_comp_p128);
+	LOG_INF("Comparing 0..128");
+	comp_data_compare(&dev_comp_p0, &dev_comp_p128, false);
+
+	comp_data_get(srv.addr, 1, &dev_comp_p1);
+	comp_data_get(srv.addr, 129, &dev_comp_p129);
+	LOG_INF("Comparing 1..129");
+	comp_data_compare(&dev_comp_p1, &dev_comp_p129, false);
+
+	comp_data_get(srv.addr, 2, &dev_comp_p2);
+	comp_data_get(srv.addr, 130, &dev_comp_p130);
+	LOG_INF("Comparing 2..130");
+	comp_data_compare(&dev_comp_p2, &dev_comp_p130, false);
+
+	LOG_INF("Start Node Composition Refresh procedure...\n");
+
+	/* Swap callback to catch when device reprovisioned. */
+	prov.node_added = prov_node_added_rpr;
+
+	ASSERT_OK(bt_mesh_reprovision_remote(&rpr_cli, &srv, srv.addr, true));
+	ASSERT_OK(k_sem_take(&reprov_sem, K_SECONDS(20)));
+
 
 	PASS();
 }
@@ -1427,6 +1428,7 @@ static void test_device_pb_remote_client_server_same_dev(void)
 
 	k_sem_init(&prov_sem, 0, 1);
 	k_sem_init(&reprov_sem, 0, 1);
+	k_sem_init(&comp_swap_sem, 0, 1);
 
 	bt_mesh_device_setup(&prov, &rpr_cli_srv_comp);
 
@@ -1484,21 +1486,6 @@ static void test_device_pb_remote_client_server_same_dev(void)
 			ASSERT_TRUE(memcmp(prev_dev_key, dev_key, sizeof(dev_key)));
 		}
 
-		LOG_INF("Changing 0x%04x Composition Data ...\n", srv.addr);
-		ASSERT_OK(bt_mesh_key_export(prev_dev_key, &bt_mesh.dev_key));
-		reprovision_remote_comp_data_client(&srv, node, &dev_comp);
-		if (self_reprov) {
-			uint8_t dev_key[16];
-
-			ASSERT_EQUAL(current_dev_addr, bt_mesh_primary_addr());
-
-			/* Let Configuration Client activate the new Device Key
-			 * and verify that it has been changed.
-			 */
-			ASSERT_OK(bt_mesh_key_export(dev_key, &bt_mesh.dev_key));
-			ASSERT_TRUE(memcmp(prev_dev_key, dev_key, sizeof(struct bt_mesh_key)));
-		}
-
 		LOG_INF("Changing 0x%04x address ...\n", srv.addr);
 		ASSERT_OK(bt_mesh_key_export(prev_dev_key, &bt_mesh.dev_key));
 		reprovision_remote_address_client(&srv, node);
@@ -1525,6 +1512,7 @@ static void test_device_pb_remote_server_same_dev(void)
 {
 	k_sem_init(&prov_sem, 0, 1);
 	k_sem_init(&reprov_sem, 0, 1);
+	k_sem_init(&comp_swap_sem, 0, 1);
 
 	bt_mesh_device_setup(&prov, &rpr_cli_srv_comp);
 
@@ -1544,42 +1532,48 @@ static void test_device_pb_remote_server_same_dev(void)
 	LOG_INF("Devkey refresh, waiting for being reprov ...\n");
 	reprovision_remote_devkey_server(initial_addr);
 
-	LOG_INF("Composition data refresh, waiting for being reprov ...\n");
-	reprovision_remote_comp_data_server(initial_addr);
-
 	LOG_INF("Address refresh, waiting for being reprov ...\n");
 	reprovision_remote_address_server(initial_addr);
 
 	PASS();
 }
 
-static void comp_data_get(uint16_t server_addr, uint8_t page, struct net_buf_simple *comp)
+static void generate_cdp128(struct net_buf_simple *buf)
 {
-	uint8_t page_rsp;
+	net_buf_simple_add_le16(buf, BT_COMP_ID_LF); /* CID */
+	net_buf_simple_add_le16(buf, 1); /* PID */
+	net_buf_simple_add_le16(buf, 2); /* VID */
+	net_buf_simple_add_le16(buf, CONFIG_BT_MESH_CRPL); /* CRPL */
+	net_buf_simple_add_le16(buf, 0x000f); /* Features (all features enabled in tester) */
 
-	/* Let complete advertising of the transaction to prevent collisions. */
-	k_sleep(K_SECONDS(3));
+	/* Element */
+	net_buf_simple_add_le16(buf, 1); /* Loc */
+	net_buf_simple_add_u8(buf, 2); /* NumS */
+	net_buf_simple_add_u8(buf, 0); /* NumV */
+	net_buf_simple_add_le16(buf, BT_MESH_MODEL_ID_CFG_SRV);
+	net_buf_simple_add_le16(buf, BT_MESH_MODEL_ID_REMOTE_PROV_SRV);
 
-	net_buf_simple_reset(comp);
-	ASSERT_OK(bt_mesh_cfg_cli_comp_data_get(0, server_addr, page, &page_rsp, comp));
-	ASSERT_EQUAL(page, page_rsp);
+	/* Element */
+	net_buf_simple_add_le16(buf, 2); /* Loc */
+	net_buf_simple_add_u8(buf, 1); /* NumS */
+	net_buf_simple_add_u8(buf, 0); /* NumV */
+	net_buf_simple_add_le16(buf, TEST_MOD_ID);
 }
 
-static void comp_data_compare(struct net_buf_simple *comp1, struct net_buf_simple *comp2,
-			      bool expect_equal)
+static void generate_cdp129(struct net_buf_simple *buf)
 {
-	if (expect_equal) {
-		ASSERT_EQUAL(comp1->len, comp2->len);
-		if (memcmp(comp1->data, comp2->data, comp1->len)) {
-			FAIL("Composition data is not equal");
-		}
-	} else {
-		if (comp1->len == comp2->len) {
-			if (!memcmp(comp1->data, comp2->data, comp1->len)) {
-				FAIL("Composition data is equal");
-			}
-		}
-	}
+	/* Element */
+	net_buf_simple_add_u8(buf, 2); /* Number_S */
+	net_buf_simple_add_u8(buf, 0); /* Number_V */
+
+	net_buf_simple_add_u8(buf, 0); /* Model Item */
+	net_buf_simple_add_u8(buf, 0); /* Model Item */
+
+	/* Element */
+	net_buf_simple_add_u8(buf, 1); /* Number_S */
+	net_buf_simple_add_u8(buf, 0); /* Number_V */
+
+	net_buf_simple_add_u8(buf, 0); /* Model Item */
 }
 
 /** @brief Test Node Composition Refresh procedure on Remote Provisioning client:
@@ -1594,39 +1588,12 @@ static void test_provisioner_pb_remote_client_ncrp(void)
 	NET_BUF_SIMPLE_DEFINE(dev_comp_p129, BT_MESH_RX_SDU_MAX);
 	NET_BUF_SIMPLE_DEFINE(dev_comp_p130, BT_MESH_RX_SDU_MAX);
 
+	generate_cdp128(&dev_comp_p128);
+	generate_cdp129(&dev_comp_p129);
+
 	uint16_t pb_remote_server_addr = 0x0003;
 
-	k_sem_init(&prov_sem, 0, 1);
-	k_sem_init(&reprov_sem, 0, 1);
-
 	bt_mesh_device_setup(&prov, &rpr_cli_comp);
-
-	/* Store Composition Data Page 0, 1, 2, 128, 129 and 130. */
-	comp_data_get(pb_remote_server_addr, 0, &dev_comp_p0);
-	comp_data_get(pb_remote_server_addr, 128, &dev_comp_p128);
-	comp_data_compare(&dev_comp_p0, &dev_comp_p128, false);
-
-	comp_data_get(pb_remote_server_addr, 1, &dev_comp_p1);
-	comp_data_get(pb_remote_server_addr, 129, &dev_comp_p129);
-	comp_data_compare(&dev_comp_p1, &dev_comp_p129, false);
-
-	comp_data_get(pb_remote_server_addr, 2, &dev_comp_p2);
-	comp_data_get(pb_remote_server_addr, 130, &dev_comp_p130);
-	comp_data_compare(&dev_comp_p2, &dev_comp_p130, false);
-
-
-	LOG_INF("Start Node Composition Refresh procedure...\n");
-	struct bt_mesh_rpr_node srv = {
-		.addr = pb_remote_server_addr,
-		.net_idx = 0,
-		.ttl = 3,
-	};
-
-	/* Swap callback to catch when device reprovisioned. */
-	prov.node_added = prov_node_added_rpr;
-
-	ASSERT_OK(bt_mesh_reprovision_remote(&rpr_cli, &srv, pb_remote_server_addr, true));
-	ASSERT_OK(k_sem_take(&reprov_sem, K_SECONDS(20)));
 
 	/* Check that Composition Data Page 128 still exists and is now equal to Page 0. */
 	comp_data_get(pb_remote_server_addr, 0, &dev_comp_p0);
@@ -1669,6 +1636,7 @@ static void test_provisioner_pb_remote_client_ncrp_second_time(void)
 
 	k_sem_init(&prov_sem, 0, 1);
 	k_sem_init(&reprov_sem, 0, 1);
+	k_sem_init(&comp_swap_sem, 0, 1);
 
 	bt_mesh_device_setup(&prov, &rpr_cli_comp);
 
@@ -1697,15 +1665,7 @@ static void test_provisioner_pb_remote_client_ncrp_second_time(void)
  * - wait for being provisioned over PB-Adv,
  * - prepare Composition Data Page 128.
  */
-static void test_device_pb_remote_server_ncrp_prepare(void)
-{
-	device_pb_remote_server_setup_unproved(&rpr_srv_comp, &comp_p2_1);
 
-	LOG_INF("Preparing for Composition Data change");
-	bt_mesh_comp_change_prepare();
-
-	PASS();
-}
 
 /** @brief Test Node Composition Refresh procedure on Remote Provisioning server:
  * - start device with new Composition Data
@@ -1713,10 +1673,30 @@ static void test_device_pb_remote_server_ncrp_prepare(void)
  */
 static void test_device_pb_remote_server_ncrp(void)
 {
-	device_pb_remote_server_setup_proved(&rpr_srv_comp_2_elem, &comp_p2_2);
+	NET_BUF_SIMPLE_DEFINE(cdp_buf, 32);
+
+	device_pb_remote_server_setup_unproved(&rpr_srv_comp, &comp_p2_1);
+
+	LOG_INF("Preparing for Composition Data change");
+	generate_cdp128(&cdp_buf);
+	ASSERT_OK(bt_mesh_comp_data_set(128, cdp_buf.data, cdp_buf.len));
+
+	net_buf_simple_reset(&cdp_buf);
+	generate_cdp129(&cdp_buf);
+	ASSERT_OK(bt_mesh_comp_data_set(129, cdp_buf.data, cdp_buf.len));
+
+	ASSERT_OK(bt_mesh_comp_data_set(130, NULL, 0));
 
 	LOG_INF("Waiting for being re-provisioned.");
 	ASSERT_OK(k_sem_take(&reprov_sem, K_SECONDS(30)));
+	ASSERT_OK(k_sem_take(&comp_swap_sem, K_SECONDS(30)));
+
+	PASS();
+}
+
+static void test_device_pb_remote_server_ncrp_comp_swap(void)
+{
+	device_pb_remote_server_setup_proved(&rpr_srv_new_comp, &comp_p2_2);
 
 	PASS();
 }
@@ -1729,7 +1709,7 @@ static void test_device_pb_remote_server_ncrp_second_time(void)
 {
 	int err;
 
-	device_pb_remote_server_setup_proved(&rpr_srv_comp_2_elem, &comp_p2_2);
+	device_pb_remote_server_setup_proved(&rpr_srv_new_comp, &comp_p2_2);
 
 	LOG_INF("Wait to verify that node is not re-provisioned...");
 	err = k_sem_take(&reprov_sem, K_SECONDS(30));
@@ -1824,9 +1804,9 @@ static const struct bst_test_instance test_connect_pst[] = {
 	TEST_CASE(device, pb_remote_server_proved,
 		  "Device: used for remote provisioning, starts provisioned"),
 
-	TEST_CASE(device, pb_remote_server_ncrp_prepare,
-		  "Device: NCRP test, prepares for Composition Data change."),
 	TEST_CASE(device, pb_remote_server_ncrp,
+		  "Device: NCRP test, prepares for Composition Data change."),
+	TEST_CASE(device, pb_remote_server_ncrp_comp_swap,
 		  "Device: NCRP test, Composition Data change."),
 	TEST_CASE(device, pb_remote_server_ncrp_second_time,
 		  "Device: NCRP test, Composition Data change after reboot."),
