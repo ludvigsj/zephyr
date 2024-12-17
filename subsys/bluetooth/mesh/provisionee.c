@@ -617,18 +617,31 @@ session_key_destructor:
 
 static void reprovision_complete(void)
 {
+	enum bt_mesh_rpr_node_refresh refresh = bt_mesh_node_refresh_get();
+
 	bt_mesh_reprovision(bt_mesh_prov_link.addr);
 
 	/* When performing the refresh composition procedure,
 	 * the device key will be activated after the first
 	 * successful decryption with the new key.
 	 */
-	if (bt_mesh_node_refresh_get() == BT_MESH_RPR_NODE_REFRESH_ADDR) {
+	if (refresh == BT_MESH_RPR_NODE_REFRESH_ADDR) {
 		bt_mesh_dev_key_cand_activate();
 	}
 
 	if (bt_mesh_prov->reprovisioned) {
 		bt_mesh_prov->reprovisioned(bt_mesh_primary_addr());
+	}
+
+	if ((refresh == BT_MESH_RPR_NODE_REFRESH_COMPOSITION ||
+	    refresh == BT_MESH_RPR_NODE_REFRESH_ADDR) &&
+	    bt_mesh_comp_128_changed()) {
+		bt_mesh_comp_data_pending_clear();
+
+		/* Set flag to prevent resuming mesh before next boot. */
+		atomic_set_bit(bt_mesh.flags, BT_MESH_TERM_ENDED);
+		bt_mesh_suspend();
+		bt_mesh_prov->comp_swap();
 	}
 }
 

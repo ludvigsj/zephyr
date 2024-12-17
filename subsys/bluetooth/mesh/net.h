@@ -188,6 +188,7 @@ enum {
 	BT_MESH_IVU_TEST,        /* IV Update test mode */
 	BT_MESH_IVU_PENDING,     /* Update blocked by SDU in progress */
 	BT_MESH_DEVKEY_CAND,     /* Has device key candidate */
+	BT_MESH_TERM_ENDED,      /* Term has ended, waiting for new init */
 
 	/* Feature flags */
 	BT_MESH_RELAY,

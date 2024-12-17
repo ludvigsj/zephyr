@@ -509,6 +509,10 @@ int bt_mesh_resume(void)
 		return -EINVAL;
 	}
 
+	if (atomic_test_bit(bt_mesh.flags, BT_MESH_TERM_ENDED)) {
+		return -EINVAL;
+	}
+
 	if (!atomic_test_and_clear_bit(bt_mesh.flags, BT_MESH_SUSPENDED)) {
 		return -EALREADY;
 	}
