@@ -2763,6 +2763,53 @@ bool bt_mesh_comp_128_changed(void)
 #endif
 }
 
+uint8_t bt_mesh_comp_128_elem_count(void)
+{
+#ifdef CONFIG_BT_MESH_HIGH_DATA_PAGES
+#ifdef CONFIG_BT_SETTINGS
+	NET_BUF_SIMPLE_DEFINE(buf, CONFIG_BT_MESH_COMP_PST_BUF_SIZE);
+
+	int err;
+	uint8_t elem_count = 0;
+	const char *path;
+	size_t size;
+
+	path = stored_page_path(PAGE_TYPE_COMP, 128);
+	err = settings_load_subtree_direct(path, stored_page_read_cb, &buf);
+	if (err) {
+		LOG_ERR("Error loading CDP128 data: %d", err);
+		return 0;
+	}
+
+	if (buf.len == 0) {
+		/* No page data stored, element count will not change in the new term. */
+		return bt_mesh_elem_count();
+	}
+
+	while ((size = next_elem_size_cdp128(&buf))) {
+		if (buf.len < size) {
+			LOG_ERR("Error parsing CDP128 data: not enough data");
+			return 0;
+		}
+		net_buf_simple_pull_mem(&buf, size);
+		elem_count++;
+	}
+
+	if (buf.len != 0) {
+		/* Garbage at the end of stored page data. */
+		LOG_ERR("Error parsing CDP128 data: garbage at the end of data");
+		return 0;
+	}
+
+	return elem_count;
+#else
+	return bt_mesh_elem_count();
+#endif /* CONFIG_BT_SETTINGS */
+#else
+	return 0;
+#endif /* CONFIG_BT_MESH_HIGH_DATA_PAGES */
+}
+
 int bt_mesh_comp_data_get_elems(struct net_buf_simple *buf, uint8_t page)
 {
 	return get_page_contents(buf, PAGE_TYPE_COMP, page, 0, false);

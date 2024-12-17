@@ -83,7 +83,13 @@ static void prov_invite(const uint8_t *data)
 	bt_mesh_prov_buf_init(&buf, PROV_CAPABILITIES);
 
 	/* Number of Elements supported */
-	net_buf_simple_add_u8(&buf, bt_mesh_elem_count());
+	if (IS_ENABLED(CONFIG_BT_MESH_RPR_SRV) &&
+	    atomic_test_bit(bt_mesh_prov_link.flags, REPROVISION) &&
+	    bt_mesh_node_refresh_get() == BT_MESH_RPR_NODE_REFRESH_ADDR) {
+		net_buf_simple_add_u8(&buf, bt_mesh_comp_128_elem_count());
+	} else {
+		net_buf_simple_add_u8(&buf, bt_mesh_elem_count());
+	}
 
 	uint16_t algorithm_bm = 0;
 	uint8_t oob_type = bt_mesh_prov->static_val ?
