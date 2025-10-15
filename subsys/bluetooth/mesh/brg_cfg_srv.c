@@ -119,14 +119,57 @@ static int bridging_table_remove(const struct bt_mesh_model *model, struct bt_me
 	return 0;
 }
 
+static bool pair_already_in_msg(struct net_buf_simple *msg, uint32_t pair)
+{
+	struct net_buf_simple_state buf_state;
+	bool result = false;
+	uint32_t msg_field;
+
+	net_buf_simple_save(msg, &buf_state);
+
+	while (msg->len >= 3) {
+		msg_field = net_buf_simple_remove_le24(msg);
+
+		if (msg_field == pair) {
+			result = true;
+			break;
+		}
+	}
+
+	net_buf_simple_restore(msg, &buf_state);
+	return result;
+}
+
+/* Opcode + 2 bytes for filter + 1 byte for start index */
+#define BRG_SUBNETS_BUF_HEADROOM (BT_MESH_MODEL_OP_LEN(OP_BRIDGED_SUBNETS_LIST) + 2 + 1)
+
+/* Maximum potential number of entries in a bridged subnets list. */
+#define BRG_SUBNETS_MAX_COUNT MIN(CONFIG_BT_MESH_BRG_TABLE_ITEMS_MAX,                              \
+				  CONFIG_BT_MESH_SUBNET_COUNT * (CONFIG_BT_MESH_SUBNET_COUNT - 1))
+
+/* The maximum size of bridged subnets list field that can fit in a single message. */
+#define BRG_SUBNETS_MAX_LIST_SIZE (BT_MESH_TX_SDU_MAX - BRG_SUBNETS_BUF_HEADROOM -                 \
+				   BT_MESH_MIC_SHORT)
+
+/*
+ * Buffer to store the full filtered list of subnet pairs. The message will be constructed from a
+ * part of this buffer, depending on start_id, meaning we need to include headroom at the start in
+ * case start_id = 0, and tailroom at the end in case we are returning the final part of the list.
+ *
+ * Need to construct the full filtered list in order to be able to check for duplicates - we need to
+ * know whether we have seen a pair before, even if it will not be part of the final message.
+ *
+ * Defined here, since it needs to contain the entire filtered list and potentially be too big for
+ * the stack.
+ */
+#define BRG_SUBNETS_BUF_SIZE (BRG_SUBNETS_BUF_HEADROOM + (BRG_SUBNETS_MAX_COUNT * 3) +             \
+			      BT_MESH_MIC_SHORT)
+NET_BUF_SIMPLE_DEFINE_STATIC(bridged_subnets_buf, BRG_SUBNETS_BUF_SIZE);
+
 static int bridged_subnets_get(const struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
 			       struct net_buf_simple *buf)
 {
-	BT_MESH_MODEL_BUF_DEFINE(msg, OP_BRIDGED_SUBNETS_LIST,
-				 BT_MESH_TX_SDU_MAX -
-					 BT_MESH_MODEL_OP_LEN(OP_BRIDGED_SUBNETS_LIST));
-	bt_mesh_model_msg_init(&msg, OP_BRIDGED_SUBNETS_LIST);
-
+	struct net_buf_simple *msg = &bridged_subnets_buf;
 	const struct bt_mesh_brg_cfg_row *brg_tbl;
 	int rows = bt_mesh_brg_cfg_tbl_get(&brg_tbl);
 	int16_t net_idx_filter = net_buf_simple_pull_le16(buf);
@@ -135,6 +178,8 @@ static int bridged_subnets_get(const struct bt_mesh_model *model, struct bt_mesh
 		return -EINVAL;
 	}
 
+	net_buf_simple_init(msg, BRG_SUBNETS_BUF_HEADROOM);
+
 	struct bt_mesh_brg_cfg_filter_netkey filter_net_idx;
 
 	filter_net_idx.filter = net_idx_filter & BIT_MASK(2);
@@ -142,70 +187,44 @@ static int bridged_subnets_get(const struct bt_mesh_model *model, struct bt_mesh
 
 	uint8_t start_id = net_buf_simple_pull_u8(buf);
 
-	net_buf_simple_add_le16(&msg, net_idx_filter);
-	net_buf_simple_add_u8(&msg, start_id);
-
-	uint8_t cnt = 0;
 	uint16_t net_idx1, net_idx2;
+	uint32_t pair;
 
 	for (int i = 0; i < rows; i++) {
 		net_idx1 = brg_tbl[i].net_idx1;
 		net_idx2 = brg_tbl[i].net_idx2;
+		pair = key_idx_pack_pair(net_idx1, net_idx2);
 
-		if (net_buf_simple_tailroom(&msg) < 3 + BT_MESH_MIC_SHORT) {
+		/*
+		 * Check if the message will become too long after we truncate the first `start_id`
+		 * items.
+		 */
+		if (msg->len - (3 * start_id) + 3 > BRG_SUBNETS_MAX_LIST_SIZE ||
+		    net_buf_simple_tailroom(msg) < 3 + BT_MESH_MIC_SHORT) {
 			break;
 		}
 
-		switch (filter_net_idx.filter) {
-		/* Report pair of NetKeys from the table, starting from start_id. */
-		case 0:
-			if (i >= start_id) {
-				net_buf_simple_add_le24(&msg, key_idx_pack_pair(net_idx1, net_idx2);
-			}
-			break;
-
-		/* Report pair of NetKeys in which (NetKeyIndex1) matches the net_idx */
-		case 1:
-			if (net_idx1 == filter_net_idx.net_idx) {
-				if (cnt >= start_id) {
-					net_buf_simple_add_le24(
-						&msg, key_idx_pack_pair(net_idx1, net_idx2);
-				}
-				cnt++;
-			}
-			break;
-
-		/* Report pair of NetKeys in which (NetKeyIndex2) matches the net_idx */
-		case 2:
-			if (net_idx2 == filter_net_idx.net_idx) {
-				if (cnt >= start_id) {
-					net_buf_simple_add_le24(
-						&msg, key_idx_pack_pair(net_idx1, net_idx2);
-				}
-				cnt++;
-			}
-			break;
-
-		/* Report pair of NetKeys in which (NetKeyIndex1 or NetKeyIndex2) matches the
-		 * net_idx
-		 */
-		case 3:
-			if (net_idx1 == filter_net_idx.net_idx ||
-			    net_idx2 == filter_net_idx.net_idx) {
-				if (cnt >= start_id) {
-					net_buf_simple_add_le24(
-						&msg, key_idx_pack_pair(net_idx1, net_idx2);
-				}
-				cnt++;
-			}
-			break;
-
-		default:
-			CODE_UNREACHABLE;
+		if (!pair_already_in_msg(msg, pair) &&
+		    (filter_net_idx.filter == 0 ||
+		     (filter_net_idx.filter == 1 && net_idx1 == filter_net_idx.net_idx) ||
+		     (filter_net_idx.filter == 2 && net_idx2 == filter_net_idx.net_idx) ||
+		     (filter_net_idx.filter == 3 && (net_idx1 == filter_net_idx.net_idx ||
+						     net_idx2 == filter_net_idx.net_idx)))) {
+			net_buf_simple_add_le24(msg, pair);
 		}
 	}
 
-	if (bt_mesh_model_send(model, ctx, &msg, NULL, NULL)) {
+	/*
+	 * Adjust the buffer by truncating the start and pushing the needed overhead data.
+	 * Doing it this way avoids having to copy from one buffer to another and avoids allocating
+	 * more buffer space than needed.
+	 */
+	net_buf_simple_pull(msg, MIN(start_id * 3, msg->len));
+	net_buf_simple_push_u8(msg, start_id);
+	net_buf_simple_push_le16(msg, net_idx_filter);
+	net_buf_simple_push_be16(msg, OP_BRIDGED_SUBNETS_LIST);
+
+	if (bt_mesh_model_send(model, ctx, msg, NULL, NULL)) {
 		LOG_ERR("Brg Subnet List send failed");
 	}
 
