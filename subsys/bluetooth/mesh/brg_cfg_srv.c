@@ -59,7 +59,7 @@ static void bridging_table_status_send(const struct bt_mesh_model *model,
 	bt_mesh_model_msg_init(&msg, OP_BRIDGING_TABLE_STATUS);
 	net_buf_simple_add_u8(&msg, status);
 	net_buf_simple_add_u8(&msg, entry->directions);
-	key_idx_pack_pair(&msg, entry->net_idx1, entry->net_idx2);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(entry->net_idx1, entry->net_idx2));
 	net_buf_simple_add_le16(&msg, entry->addr1);
 	net_buf_simple_add_le16(&msg, entry->addr2);
 
@@ -160,7 +160,7 @@ static int bridged_subnets_get(const struct bt_mesh_model *model, struct bt_mesh
 		/* Report pair of NetKeys from the table, starting from start_id. */
 		case 0:
 			if (i >= start_id) {
-				key_idx_pack_pair(&msg, net_idx1, net_idx2);
+				net_buf_simple_add_le24(&msg, key_idx_pack_pair(net_idx1, net_idx2);
 			}
 			break;
 
@@ -168,7 +168,8 @@ static int bridged_subnets_get(const struct bt_mesh_model *model, struct bt_mesh
 		case 1:
 			if (net_idx1 == filter_net_idx.net_idx) {
 				if (cnt >= start_id) {
-					key_idx_pack_pair(&msg, net_idx1, net_idx2);
+					net_buf_simple_add_le24(
+						&msg, key_idx_pack_pair(net_idx1, net_idx2);
 				}
 				cnt++;
 			}
@@ -178,7 +179,8 @@ static int bridged_subnets_get(const struct bt_mesh_model *model, struct bt_mesh
 		case 2:
 			if (net_idx2 == filter_net_idx.net_idx) {
 				if (cnt >= start_id) {
-					key_idx_pack_pair(&msg, net_idx1, net_idx2);
+					net_buf_simple_add_le24(
+						&msg, key_idx_pack_pair(net_idx1, net_idx2);
 				}
 				cnt++;
 			}
@@ -191,7 +193,8 @@ static int bridged_subnets_get(const struct bt_mesh_model *model, struct bt_mesh
 			if (net_idx1 == filter_net_idx.net_idx ||
 			    net_idx2 == filter_net_idx.net_idx) {
 				if (cnt >= start_id) {
-					key_idx_pack_pair(&msg, net_idx1, net_idx2);
+					net_buf_simple_add_le24(
+						&msg, key_idx_pack_pair(net_idx1, net_idx2);
 				}
 				cnt++;
 			}
@@ -228,7 +231,7 @@ static int bridging_table_get(const struct bt_mesh_model *model, struct bt_mesh_
 	}
 
 	net_buf_simple_add_u8(&msg, status);
-	key_idx_pack_pair(&msg, net_idx1, net_idx2);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(net_idx1, net_idx2));
 	net_buf_simple_add_le16(&msg, start_id);
 
 	if (status != STATUS_SUCCESS) {

@@ -1422,7 +1422,7 @@ int bt_mesh_cfg_cli_app_key_add(uint16_t net_idx, uint16_t addr, uint16_t key_ne
 	};
 
 	bt_mesh_model_msg_init(&msg, OP_APP_KEY_ADD);
-	key_idx_pack_pair(&msg, key_net_idx, key_app_idx);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(key_net_idx, key_app_idx));
 	net_buf_simple_add_mem(&msg, app_key, 16);
 
 	return bt_mesh_msg_ackd_send(cli->model, &ctx, &msg, !status ? NULL : &rsp);
@@ -1446,7 +1446,7 @@ int bt_mesh_cfg_cli_app_key_update(uint16_t net_idx, uint16_t addr, uint16_t key
 	};
 
 	bt_mesh_model_msg_init(&msg, OP_APP_KEY_UPDATE);
-	key_idx_pack_pair(&msg, key_net_idx, key_app_idx);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(key_net_idx, key_app_idx));
 	net_buf_simple_add_mem(&msg, app_key, 16);
 
 	return bt_mesh_msg_ackd_send(cli->model, &ctx, &msg, !status ? NULL : &rsp);
@@ -1516,7 +1516,7 @@ int bt_mesh_cfg_cli_app_key_del(uint16_t net_idx, uint16_t addr, uint16_t key_ne
 	};
 
 	bt_mesh_model_msg_init(&msg, OP_APP_KEY_DEL);
-	key_idx_pack_pair(&msg, key_net_idx, key_app_idx);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(key_net_idx, key_app_idx));
 
 	return bt_mesh_msg_ackd_send(cli->model, &ctx, &msg, !status ? NULL : &rsp);
 }

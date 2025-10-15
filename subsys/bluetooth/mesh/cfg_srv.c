@@ -272,7 +272,7 @@ static void key_idx_pack_list(struct net_buf_simple *buf, uint16_t *arr, size_t 
 				continue;
 			}
 
-			key_idx_pack_pair(buf, *idx, arr[i]);
+			net_buf_simple_add_le24(buf, key_idx_pack_pair(*idx, arr[i]));
 			idx = NULL;
 		}
 	}
@@ -292,7 +292,7 @@ static int send_app_key_status(const struct bt_mesh_model *model,
 
 	bt_mesh_model_msg_init(&msg, OP_APP_KEY_STATUS);
 	net_buf_simple_add_u8(&msg, status);
-	key_idx_pack_pair(&msg, net_idx, app_idx);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(net_idx, app_idx));
 
 	if (bt_mesh_model_send(model, ctx, &msg, NULL, NULL)) {
 		LOG_ERR("Unable to send App Key Status response");

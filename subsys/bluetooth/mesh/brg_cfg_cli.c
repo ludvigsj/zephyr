@@ -283,7 +283,7 @@ int bt_mesh_brg_cfg_cli_table_add(uint16_t net_idx, uint16_t addr,
 
 	bt_mesh_model_msg_init(&msg, OP_BRIDGING_TABLE_ADD);
 	net_buf_simple_add_u8(&msg, entry->directions);
-	key_idx_pack_pair(&msg, entry->net_idx1, entry->net_idx2);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(entry->net_idx1, entry->net_idx2));
 	net_buf_simple_add_le16(&msg, entry->addr1);
 	net_buf_simple_add_le16(&msg, entry->addr2);
 
@@ -312,7 +312,7 @@ int bt_mesh_brg_cfg_cli_table_remove(uint16_t net_idx, uint16_t addr, uint16_t n
 	}
 
 	bt_mesh_model_msg_init(&msg, OP_BRIDGING_TABLE_REMOVE);
-	key_idx_pack_pair(&msg, net_idx1, net_idx2);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(net_idx1, net_idx2));
 	net_buf_simple_add_le16(&msg, addr1);
 	net_buf_simple_add_le16(&msg, addr2);
 
@@ -353,7 +353,7 @@ int bt_mesh_brg_cfg_cli_table_get(uint16_t net_idx, uint16_t addr, uint16_t net_
 	};
 
 	bt_mesh_model_msg_init(&msg, OP_BRIDGING_TABLE_GET);
-	key_idx_pack_pair(&msg, net_idx1, net_idx2);
+	net_buf_simple_add_le24(&msg, key_idx_pack_pair(net_idx1, net_idx2));
 	net_buf_simple_add_le16(&msg, start_idx);
 
 	return bt_mesh_msg_ackd_send(cli->model, &ctx, &msg, !rsp ? NULL : &rsp_ctx);
